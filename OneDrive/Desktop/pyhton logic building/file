@@ -1,0 +1,77 @@
+import requests
+from bs4 import BeautifulSoup
+import os
+from urllib.parse import urljoin, urlparse
+from pathlib import Path
+
+def download_file(url, folder):
+    try:
+        response = requests.get(url)
+        response.raise_for_status()
+        
+        # Get the file name from the URL
+        filename = os.path.join(folder, urlparse(url).path.lstrip('/'))
+        if not os.path.splitext(filename)[1]:
+            filename = os.path.join(filename, 'index.html')
+        
+        os.makedirs(os.path.dirname(filename), exist_ok=True)
+        
+        with open(filename, 'wb') as file:
+            file.write(response.content)
+        print(f"Downloaded {url} to {filename}")
+    except requests.RequestException as e:
+        print(f"Error downloading {url}: {e}")
+
+def scrape_website(url, depth=1, folder='downloaded_site'):
+    def scrape(url, folder, current_depth):
+        if current_depth > depth:
+            return
+        
+        try:
+            response = requests.get(url)
+            response.raise_for_status()
+        except requests.RequestException as e:
+            print(f"Error accessing {url}: {e}")
+            return
+        
+        # Save the main page HTML
+        download_file(url, folder)
+        
+        soup = BeautifulSoup(response.text, 'html.parser')
+        
+        # Find all links and assets
+        tags = soup.find_all(['a', 'img', 'link', 'script'])
+        
+        urls_to_scrape = set()
+        
+        for tag in tags:
+            if tag.name == 'a' and tag.get('href'):
+                link = tag['href']
+                full_url = urljoin(url, link)
+                if urlparse(full_url).netloc == urlparse(url).netloc:
+                    urls_to_scrape.add(full_url)
+            elif tag.name == 'img' and tag.get('src'):
+                src = tag['src']
+                full_url = urljoin(url, src)
+                if urlparse(full_url).netloc == urlparse(url).netloc:
+                    download_file(full_url, folder)
+            elif tag.name == 'link' and tag.get('href'):
+                href = tag['href']
+                full_url = urljoin(url, href)
+                if urlparse(full_url).netloc == urlparse(url).netloc:
+                    download_file(full_url, folder)
+            elif tag.name == 'script' and tag.get('src'):
+                src = tag['src']
+                full_url = urljoin(url, src)
+                if urlparse(full_url).netloc == urlparse(url).netloc:
+                    download_file(full_url, folder)
+        
+        for link in urls_to_scrape:
+            scrape(link, folder, current_depth + 1)
+    
+    scrape(url, folder, 1)
+
+if __name__ == "__main__":
+    website_url = input("Enter the URL of the website to scrape: ")
+    depth = int(input("Enter the depth of scraping (default 1): ") or 1)
+    scrape_website(website_url, depth)
